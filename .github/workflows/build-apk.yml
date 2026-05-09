@@ -12,10 +12,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build APK with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        with:
-          workdir: .
-          buildozer_version: stable
+        run: |
+          docker run --interactive --tty --rm \
+            --volume "$(pwd)":/home/user/hostcwd \
+            --volume ~/.buildozer:/home/user/.buildozer \
+            --workdir /home/user/hostcwd \
+            kivy/buildozer:latest \
+            android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
