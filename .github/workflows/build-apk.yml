@@ -11,21 +11,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Accept Android SDK license and Build APK
+      - name: Build APK with Buildozer
         run: |
-          # Accept SDK licenses non-interactively (buildozer invokes sdkmanager which needs pre-accepted licenses)
-          docker run --rm \
-            --volume ~/.buildozer:/home/user/.buildozer \
-            --workdir /tmp \
-            kivy/buildozer:latest \
-            bash -c 'yes | /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null; yes | /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager --licenses 2>/dev/null; exit 0'
-          # Build
           docker run --rm \
             --volume "$(pwd)":/home/user/hostcwd \
             --volume ~/.buildozer:/home/user/.buildozer \
             --workdir /home/user/hostcwd \
             kivy/buildozer:latest \
-            android debug
+            bash -c '
+              SDK=/home/user/.buildozer/android/platform/android-sdk
+              for sm in "$SDK/cmdline-tools/latest/bin/sdkmanager" "$SDK/tools/bin/sdkmanager"; do
+                if [ -x "$sm" ]; then yes | "$sm" --licenses >/dev/null 2>&1; fi
+              done
+              yes | buildozer android debug
+            '
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
