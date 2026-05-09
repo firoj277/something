@@ -14,11 +14,12 @@ jobs:
       - name: Build APK with Buildozer
         run: |
           docker run --rm \
+            --entrypoint bash \
             --volume "$(pwd)":/home/user/hostcwd \
             --volume ~/.buildozer:/home/user/.buildozer \
             --workdir /home/user/hostcwd \
             kivy/buildozer:latest \
-            bash -c '
+            -c '
               SDK=/home/user/.buildozer/android/platform/android-sdk
               for sm in "$SDK/cmdline-tools/latest/bin/sdkmanager" "$SDK/tools/bin/sdkmanager"; do
                 if [ -x "$sm" ]; then yes | "$sm" --licenses >/dev/null 2>&1; fi
