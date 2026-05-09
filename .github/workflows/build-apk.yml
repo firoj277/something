@@ -13,7 +13,7 @@ jobs:
 
       - name: Build APK with Buildozer
         run: |
-          docker run --interactive --tty --rm \
+          docker run --rm \
             --volume "$(pwd)":/home/user/hostcwd \
             --volume ~/.buildozer:/home/user/.buildozer \
             --workdir /home/user/hostcwd \
