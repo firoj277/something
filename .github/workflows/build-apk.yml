@@ -15,7 +15,6 @@ jobs:
         run: |
           docker run --rm \
             --entrypoint bash \
-            --env LDFLAGS="-Wl,-z,max-page-size=16384" \
             --volume "$(pwd)":/home/user/hostcwd \
             --volume ~/.buildozer:/home/user/.buildozer \
             --workdir /home/user/hostcwd \
