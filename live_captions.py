@@ -71,48 +71,51 @@ class CaptionHistory(ScrollView):
 
 
 if _android_available:
-    class AndroidSpeechListener(PythonJavaClass):
-        __javainterfaces__ = ['android/speech/RecognitionListener']
+    try:
+        class AndroidSpeechListener(PythonJavaClass):
+            __javainterfaces__ = ['android/speech/RecognitionListener']
 
-        def __init__(self, app):
-            super().__init__()
-            self.app = app
+            def __init__(self, app):
+                super().__init__()
+                self.app = app
 
-        @java_method('(Landroid/os/Bundle;)V')
-        def onReadyForSpeech(self, params):
-            self.app._on_status("Listening for speech...")
+            @java_method('(Landroid/os/Bundle;)V')
+            def onReadyForSpeech(self, params):
+                self.app._on_status("Listening for speech...")
 
-        @java_method('(I)V')
-        def onBeginningOfSpeech(self):
-            pass
+            @java_method('(I)V')
+            def onBeginningOfSpeech(self):
+                pass
 
-        @java_method('(F)V')
-        def onRmsChanged(self, rmsdB):
-            pass
+            @java_method('(F)V')
+            def onRmsChanged(self, rmsdB):
+                pass
 
-        @java_method('(F)V')
-        def onBufferReceived(self, buffer):
-            pass
+            @java_method('(F)V')
+            def onBufferReceived(self, buffer):
+                pass
 
-        @java_method('(I)V')
-        def onEndOfSpeech(self):
-            pass
+            @java_method('(I)V')
+            def onEndOfSpeech(self):
+                pass
 
-        @java_method('(I)V')
-        def onError(self, error):
-            self.app._on_recognition_error(error)
+            @java_method('(I)V')
+            def onError(self, error):
+                self.app._on_recognition_error(error)
 
-        @java_method('(Landroid/os/Bundle;)V')
-        def onResults(self, results):
-            self.app._on_recognition_results(results)
+            @java_method('(Landroid/os/Bundle;)V')
+            def onResults(self, results):
+                self.app._on_recognition_results(results)
 
-        @java_method('(Landroid/os/Bundle;)V')
-        def onPartialResults(self, partialResults):
-            self.app._on_partial_results(partialResults)
+            @java_method('(Landroid/os/Bundle;)V')
+            def onPartialResults(self, partialResults):
+                self.app._on_partial_results(partialResults)
 
-        @java_method('(Landroid/os/Bundle;)V')
-        def onSegmentResults(self, segmentResults):
-            pass
+            @java_method('(Landroid/os/Bundle;)V')
+            def onSegmentResults(self, segmentResults):
+                pass
+    except Exception:
+        _android_available = False
 
 
 ERROR_DESCRIPTIONS = {

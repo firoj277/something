@@ -15,8 +15,8 @@ android.minapi = 21
 android.ndk = 25b
 android.sdk = 33
 # android.gradle_dependencies = com.google.android.gms:play-services-speech:20.0.0
-android.permissions = RECORD_AUDIO,INTERNET,SYSTEM_ALERT_WINDOW
-android.overlay_permission = 1
+android.permissions = RECORD_AUDIO,INTERNET
+# android.overlay_permission = 1
 
 [buildozer]
 log_level = 2
