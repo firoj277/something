@@ -5,15 +5,15 @@ package.domain = org.example
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 version = 1.0.0
-requirements = python3,kivy>=2.1.0,SpeechRecognition>=3.10.0,android
+requirements = python3,kivy>=2.1.0,android
 orientation = portrait
 osx.python_version = 3
 osx.kivy_version = 2.1.0
 fullscreen = 1
-android.api = 31
+android.api = 33
 android.minapi = 21
 android.ndk = 25b
-android.sdk = 31
+android.sdk = 33
 # android.gradle_dependencies = com.google.android.gms:play-services-speech:20.0.0
 android.permissions = RECORD_AUDIO,INTERNET,SYSTEM_ALERT_WINDOW
 android.overlay_permission = 1

@@ -1,9 +1,3 @@
-"""
-Live Captions Overlay for Android
-Captures microphone audio and displays real-time captions in a rectangular overlay box.
-Built with Kivy — deployable on Android via Buildozer.
-"""
-
 import kivy
 kivy.require('2.1.0')
 
@@ -16,11 +10,15 @@ from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.utils import platform
 
-import speech_recognition as sr
-import threading
+if platform == "android":
+    from jnius import autoclass, PythonJavaClass, java_method
+    from android.permissions import request_permissions, Permission
 
+    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+    Intent = autoclass('android.content.Intent')
+    RecognizerIntent = autoclass('android.speech.RecognizerIntent')
+    SpeechRecognizer = autoclass('android.speech.SpeechRecognizer')
 
-# ── Rectangular caption box with dark background ──────────────────────────
 
 class CaptionBox(BoxLayout):
     def __init__(self, **kwargs):
@@ -34,8 +32,6 @@ class CaptionBox(BoxLayout):
         self.rect.pos = instance.pos
         self.rect.size = instance.size
 
-
-# ── Scrollable caption history ────────────────────────────────────────────
 
 class CaptionHistory(ScrollView):
     def __init__(self, **kwargs):
@@ -56,7 +52,6 @@ class CaptionHistory(ScrollView):
         self.add_widget(self.label)
 
     def add_line(self, text):
-        """Append a caption line, keep max 5 lines."""
         lines = self.label.text.split("\n") if self.label.text else []
         lines = [l for l in lines if l]
         lines.append(text)
@@ -68,20 +63,73 @@ class CaptionHistory(ScrollView):
         self.scroll_y = 0
 
 
-# ── Main app ──────────────────────────────────────────────────────────────
+if platform == "android":
+    class AndroidSpeechListener(PythonJavaClass):
+        __javainterfaces__ = ['android/speech/RecognitionListener']
+
+        def __init__(self, app):
+            super().__init__()
+            self.app = app
+
+        @java_method('(Landroid/os/Bundle;)V')
+        def onReadyForSpeech(self, params):
+            self.app._status("Listening for speech...")
+
+        @java_method('(I)V')
+        def onBeginningOfSpeech(self):
+            pass
+
+        @java_method('(F)V')
+        def onRmsChanged(self, rmsdB):
+            pass
+
+        @java_method('(F)V')
+        def onBufferReceived(self, buffer):
+            pass
+
+        @java_method('(I)V')
+        def onEndOfSpeech(self):
+            pass
+
+        @java_method('(I)V')
+        def onError(self, error):
+            self.app._on_recognition_error(error)
+
+        @java_method('(Landroid/os/Bundle;)V')
+        def onResults(self, results):
+            self.app._on_recognition_results(results)
+
+        @java_method('(Landroid/os/Bundle;)V')
+        def onPartialResults(self, partialResults):
+            self.app._on_partial_results(partialResults)
+
+        @java_method('(Landroid/os/Bundle;)V')
+        def onSegmentResults(self, segmentResults):
+            pass
+
+
+ERROR_DESCRIPTIONS = {
+    1: "Network timeout",
+    2: "Network error",
+    3: "Audio error",
+    4: "Server error",
+    5: "Client error",
+    6: "Speech timeout",
+    7: "No match",
+    8: "Recognizer busy",
+    9: "Insufficient permissions",
+}
+
 
 class LiveCaptionsApp(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.title = "Live Captions"
-        self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 300
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
         self.running = True
+        self.speech_recognizer = None
+        self.listener = None
 
     def build(self):
-        # Android: make window fullscreen, always-on-top hint
         if platform == "android":
             Window.softinput_mode = "below_target"
 
@@ -95,8 +143,19 @@ class LiveCaptionsApp(App):
         self.history = CaptionHistory(size_hint_y=0.8)
         self.caption_box.add_widget(self.history)
 
+        self.current_line = Label(
+            text="",
+            markup=True,
+            color=(0.9, 0.9, 0.9, 1),
+            font_size="20sp",
+            halign="center",
+            valign="middle",
+            size_hint_y=0.2,
+        )
+        self.caption_box.add_widget(self.current_line)
+
         self.status_label = Label(
-            text="[i]Initialising …[/i]",
+            text="[i]Initialising ...[/i]",
             markup=True,
             color=(0.7, 0.7, 0.7, 1),
             font_size="13sp",
@@ -114,8 +173,73 @@ class LiveCaptionsApp(App):
         self.caption_box.height = max(120, int(h * 0.28))
 
     def _start(self, dt):
-        self._status("Initialising microphone …")
-        threading.Thread(target=self._caption_loop, daemon=True).start()
+        if platform == "android":
+            self._request_permissions()
+        else:
+            self._status("Speech recognition requires Android device")
+
+    def _request_permissions(self):
+        self._status("Requesting microphone permission...")
+        try:
+            request_permissions(
+                [Permission.RECORD_AUDIO],
+                self._on_permissions_result
+            )
+        except Exception as exc:
+            self._status(f"Permission request failed: {exc}")
+
+    def _on_permissions_result(self, permissions, grant_results):
+        if all(grant_results):
+            self._init_speech_recognizer()
+        else:
+            self._status("Microphone permission denied")
+
+    def _init_speech_recognizer(self):
+        try:
+            self.listener = AndroidSpeechListener(self)
+            activity = PythonActivity.mActivity
+            self.speech_recognizer = SpeechRecognizer.createSpeechRecognizer(activity)
+            self.speech_recognizer.setRecognitionListener(self.listener)
+            self._start_listening()
+        except Exception as exc:
+            self._status(f"Speech init error: {exc}")
+
+    def _start_listening(self):
+        if not self.running or not self.speech_recognizer:
+            return
+        try:
+            intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            intent.putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+            )
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, True)
+            self.speech_recognizer.startListening(intent)
+            self._status("Listening...")
+        except Exception as exc:
+            self._status(f"Start error: {exc}")
+
+    def _on_recognition_results(self, results):
+        matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+        if matches and matches.size() > 0:
+            text = matches.get(0)
+            if text.strip():
+                self._show(text)
+        Clock.schedule_once(lambda dt: self._start_listening(), 0.1)
+
+    def _on_partial_results(self, partialResults):
+        matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+        if matches and matches.size() > 0:
+            text = matches.get(0)
+            self._show_interim(text)
+
+    def _on_recognition_error(self, error):
+        msg = ERROR_DESCRIPTIONS.get(error, f"Error code {error}")
+        self._status(msg)
+        if error in (7, 6, 2):
+            Clock.schedule_once(lambda dt: self._start_listening(), 0.5)
+        elif error == 8:
+            Clock.schedule_once(lambda dt: self._start_listening(), 2)
 
     def _status(self, text):
         Clock.schedule_once(lambda dt: setattr(self.status_label, "text", f"[i]{text}[/i]"))
@@ -123,36 +247,13 @@ class LiveCaptionsApp(App):
     def _show(self, text):
         Clock.schedule_once(lambda dt: self.history.add_line(text))
 
-    def _caption_loop(self):
-        try:
-            with sr.Microphone() as source:
-                self._status("Adjusting for ambient noise …")
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.5)
-                self._status("Listening …")
-
-                while self.running:
-                    try:
-                        audio = self.recognizer.listen(
-                            source, timeout=2, phrase_time_limit=5
-                        )
-                    except sr.WaitTimeoutError:
-                        continue
-
-                    try:
-                        text = self.recognizer.recognize_google(audio)
-                        if text.strip():
-                            self._show(text)
-                            self._status("Listening …")
-                    except sr.UnknownValueError:
-                        pass
-                    except sr.RequestError as exc:
-                        self._status(f"API error: {exc}")
-
-        except Exception as exc:
-            self._status(f"Microphone error: {exc}")
+    def _show_interim(self, text):
+        Clock.schedule_once(lambda dt: setattr(self.current_line, "text", text))
 
     def on_stop(self):
         self.running = False
+        if self.speech_recognizer:
+            self.speech_recognizer.destroy()
 
 
 if __name__ == "__main__":
