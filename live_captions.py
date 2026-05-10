@@ -10,14 +10,21 @@ from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.utils import platform
 
-if platform == "android":
-    from jnius import autoclass, PythonJavaClass, java_method
-    from android.permissions import request_permissions, Permission
+_android_available = False
+_android_classes = {}
 
-    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-    Intent = autoclass('android.content.Intent')
-    RecognizerIntent = autoclass('android.speech.RecognizerIntent')
-    SpeechRecognizer = autoclass('android.speech.SpeechRecognizer')
+if platform == "android":
+    try:
+        from jnius import autoclass, PythonJavaClass, java_method
+        from android.permissions import request_permissions
+
+        _android_classes["PythonActivity"] = autoclass('org.kivy.android.PythonActivity')
+        _android_classes["Intent"] = autoclass('android.content.Intent')
+        _android_classes["RecognizerIntent"] = autoclass('android.speech.RecognizerIntent')
+        _android_classes["SpeechRecognizer"] = autoclass('android.speech.SpeechRecognizer')
+        _android_available = True
+    except Exception:
+        _android_available = False
 
 
 class CaptionBox(BoxLayout):
@@ -63,7 +70,7 @@ class CaptionHistory(ScrollView):
         self.scroll_y = 0
 
 
-if platform == "android":
+if _android_available:
     class AndroidSpeechListener(PythonJavaClass):
         __javainterfaces__ = ['android/speech/RecognitionListener']
 
@@ -73,7 +80,7 @@ if platform == "android":
 
         @java_method('(Landroid/os/Bundle;)V')
         def onReadyForSpeech(self, params):
-            self.app._status("Listening for speech...")
+            self.app._on_status("Listening for speech...")
 
         @java_method('(I)V')
         def onBeginningOfSpeech(self):
@@ -173,54 +180,63 @@ class LiveCaptionsApp(App):
         self.caption_box.height = max(120, int(h * 0.28))
 
     def _start(self, dt):
-        if platform == "android":
+        if _android_available:
             self._request_permissions()
+        elif platform == "android":
+            self._on_status("Android classes failed to load")
         else:
-            self._status("Speech recognition requires Android device")
+            self._on_status("Speech recognition requires Android device")
 
     def _request_permissions(self):
-        self._status("Requesting microphone permission...")
+        self._on_status("Requesting microphone permission...")
         try:
             request_permissions(
-                [Permission.RECORD_AUDIO],
+                ["android.permission.RECORD_AUDIO"],
                 self._on_permissions_result
             )
         except Exception as exc:
-            self._status(f"Permission request failed: {exc}")
+            self._on_status(f"Permission error: {exc}")
+            self._try_init_anyway()
+
+    def _try_init_anyway(self):
+        self._on_status("Initialising speech recognizer...")
+        Clock.schedule_once(lambda dt: self._init_speech_recognizer(), 0.5)
 
     def _on_permissions_result(self, permissions, grant_results):
         if all(grant_results):
             self._init_speech_recognizer()
         else:
-            self._status("Microphone permission denied")
+            self._on_status("Microphone permission denied - enable in Settings")
 
     def _init_speech_recognizer(self):
         try:
+            sr = _android_classes["SpeechRecognizer"]
+            pa = _android_classes["PythonActivity"]
             self.listener = AndroidSpeechListener(self)
-            activity = PythonActivity.mActivity
-            self.speech_recognizer = SpeechRecognizer.createSpeechRecognizer(activity)
+            activity = pa.mActivity
+            self.speech_recognizer = sr.createSpeechRecognizer(activity)
             self.speech_recognizer.setRecognitionListener(self.listener)
             self._start_listening()
         except Exception as exc:
-            self._status(f"Speech init error: {exc}")
+            self._on_status(f"Speech init error: {exc}")
 
     def _start_listening(self):
         if not self.running or not self.speech_recognizer:
             return
         try:
-            intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            intent.putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-            )
-            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, True)
+            Intent = _android_classes["Intent"]
+            RI = _android_classes["RecognizerIntent"]
+            intent = Intent(RI.ACTION_RECOGNIZE_SPEECH)
+            intent.putExtra(RI.EXTRA_LANGUAGE_MODEL, RI.LANGUAGE_MODEL_FREE_FORM)
+            intent.putExtra(RI.EXTRA_PARTIAL_RESULTS, True)
             self.speech_recognizer.startListening(intent)
-            self._status("Listening...")
+            self._on_status("Listening...")
         except Exception as exc:
-            self._status(f"Start error: {exc}")
+            self._on_status(f"Start error: {exc}")
 
     def _on_recognition_results(self, results):
-        matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+        sr = _android_classes["SpeechRecognizer"]
+        matches = results.getStringArrayList(sr.RESULTS_RECOGNITION)
         if matches and matches.size() > 0:
             text = matches.get(0)
             if text.strip():
@@ -228,20 +244,21 @@ class LiveCaptionsApp(App):
         Clock.schedule_once(lambda dt: self._start_listening(), 0.1)
 
     def _on_partial_results(self, partialResults):
-        matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+        sr = _android_classes["SpeechRecognizer"]
+        matches = partialResults.getStringArrayList(sr.RESULTS_RECOGNITION)
         if matches and matches.size() > 0:
             text = matches.get(0)
             self._show_interim(text)
 
     def _on_recognition_error(self, error):
         msg = ERROR_DESCRIPTIONS.get(error, f"Error code {error}")
-        self._status(msg)
+        self._on_status(msg)
         if error in (7, 6, 2):
             Clock.schedule_once(lambda dt: self._start_listening(), 0.5)
         elif error == 8:
             Clock.schedule_once(lambda dt: self._start_listening(), 2)
 
-    def _status(self, text):
+    def _on_status(self, text):
         Clock.schedule_once(lambda dt: setattr(self.status_label, "text", f"[i]{text}[/i]"))
 
     def _show(self, text):
